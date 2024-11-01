@@ -98,6 +98,16 @@ impl Connection {
                         ),
                     }
                 }
+
+                // release udp sessions
+                conn.release_udp_sessions().await;
+
+                debug!(
+                    "[{id:#010x}] [{addr}] [{user}] connection is closed",
+                    id = conn.id(),
+                    addr = addr,
+                    user = conn.auth,
+                );
             }
             Err(err) if err.is_trivial() => {
                 debug!(
@@ -192,5 +202,26 @@ impl Connection {
 
     fn close(&self) {
         self.inner.close(ERROR_CODE, &[]);
+    }
+
+    async fn release_udp_sessions(&self) {
+        let mut sessions = self.udp_sessions.write().await;
+
+        let count = sessions.len();
+        if count > 0 {
+            sessions.drain().for_each(|(_, session)| {
+                tokio::spawn(async move {
+                    let _ = session.close().await;
+                });
+            });
+        }
+
+        debug!(
+            "[{id:#010x}] [{addr}] [{user}] udp sessions are released: [{count}]",
+            id = self.id(),
+            addr = self.inner.remote_address(),
+            user = self.auth,
+            count = count,
+        );
     }
 }
